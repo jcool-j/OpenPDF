@@ -2,7 +2,7 @@ name: Windows build only / בדיקת בנייה בלבד ב-Windows
 on:
   push:
     branches: [fix/recent-issues-2026-11-18]
-    paths: [.github/workflows/verify-windows.yml]
+    paths: [.github/workflows/verify-windows.yml, 'src/**', 'src-tauri/**', 'tests/**', 'scripts/**', package.json, package-lock.json]
 permissions:
   contents: read
 jobs:
