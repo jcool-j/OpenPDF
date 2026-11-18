@@ -338,6 +338,17 @@ export class ViewerController {
     if (!active) {
       this.commitEdits();
       this.uiManager?.removeEditListeners();
+      // Release only raster backing stores. Keep the document/worker, text,
+      // forms and editor layers alive so search, selection and undo survive.
+      // Destroying PDF.js editors or the worker here would lose per-tab state.
+      for (let index = 0; index < this.viewer.pagesCount; index++) {
+        this.viewer.getPageView(index)?.reset({
+          keepAnnotationLayer: true,
+          keepAnnotationEditorLayer: true,
+          keepXfaLayer: true,
+          keepTextLayer: true,
+        });
+      }
     } else if (!this.active) {
       this.uiManager?.addEditListeners();
     }

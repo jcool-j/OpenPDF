@@ -18,8 +18,8 @@ Scope: all 9 open upstream issues at review time on 2026-11-18, based on main `6
   **#20 בעברית:** נוסף מקור PNG שקוף וקובץ ICO עם הגדלים לעיל, לפי התמונה המצורפת לאישיו. הגדרות Tauri הקיימות משתמשות באותו ICO עבור התוכנה וחבילות ההתקנה וה־EXE הנייד. תצוגות האייקון נבדקו חזותית. עדיין נדרש אימות בפועל של EXE, מתקינים, שורת משימות, קיצורי דרך והתקנה נקייה. לא פורסמה גרסת הפצה.
 - **#8 and #13:** Single-instance routing and light theme already exist in upstream main. No duplicate replacement was introduced. Light theme was exercised in the browser; Windows shell routing is still unverified.
   **#8 ו־#13 בעברית:** ניתוב למופע יחיד ותצוגה בהירה כבר קיימים ב־main המקורי. לא נוסף מימוש כפול. התצוגה הבהירה נבדקה בדפדפן; ניתוב קבצים דרך מעטפת Windows עדיין לא אומת.
-- **#9:** Still open. A synthetic 20-page PDF showed 1/5/10 workers at 1/5/10 tabs, 3/12/22 canvases and approximately 2.66/13.83/27.73 million canvas pixels. Main JS heap snapshots were about 14.1/15.5/16.5 MB, without forced GC; these exclude worker heaps, native/GPU memory and are not leak measurements. A separate 20-tab attempt crashed the Linux headless renderer while opening tab 17. No unsafe worker suspension that would lose undo history was introduced. Windows/scanned-document profiling remains necessary.
-  **#9 בעברית:** נשאר פתוח. בקובץ בדיקה סינתטי בן 20 עמודים, ב־1/5/10 כרטיסיות היו 1/5/10 עובדים ו־3/12/22 משטחי ציור, עם כ־2.66/13.83/27.73 מיליון פיקסלים. מדידות ערימת JavaScript הראשית היו כ־14.1/15.5/16.5 MB ללא איסוף זבל כפוי; הן אינן כוללות עובדים, זיכרון מקומי או GPU ואינן מדידות דליפה. בניסיון נפרד של 20 כרטיסיות, תהליך הרינדור של Chromium בלינוקס קרס בפתיחת כרטיסייה 17. לא הוכנסה השעיה מסוכנת שעלולה לאבד היסטוריית ביטול. נדרש פרופיל זיכרון ב־Windows ובמסמכים סרוקים.
+- **#9:** Improved, not fully closed. Inactive tabs now release PDF.js page raster backing stores, while keeping document workers, text, forms and editor layers. This preserves undo and unsaved data. A real Linux Chromium run on a 20-page text PDF reached 1/5/10/20 tabs with 1/5/10/20 workers and about 4.56/2.83/2.83/2.83 million retained canvas pixels. A synthetic 1200x1600 scanned-page fixture also reached 20 tabs, retaining about 2.78 million canvas pixels at 20 tabs. These runs did not reproduce the earlier tab-17 crash, but do not establish its root cause. The regression verifies document identity, page, scale, rotation, scroll, search results, unsaved Hebrew notes, ink undo/redo and worker destruction when closing back to one tab. Main-thread heap is sampled without forced GC and excludes worker/native/GPU memory. Workers and decoded page resources still scale with open documents. Windows process-memory profiling with varied real scanned PDFs remains necessary.
+  **#9 בעברית:** שופר, אך לא נסגר במלואו. כרטיסיות לא פעילות משחררות את משטחי הציור של עמודי PDF.js, תוך שמירת העובדים, הטקסט, הטפסים ושכבות העריכה כדי לא לאבד ביטול ושינויים שטרם נשמרו. בדיקת Chromium אמיתית בלינוקס עם מסמך טקסט בן 20 עמודים הגיעה ל־1/5/10/20 כרטיסיות עם 1/5/10/20 עובדים וכ־4.56/2.83/2.83/2.83 מיליון פיקסלים בזיכרון משטחי הציור. גם מסמך סרוק סינתטי בגודל 1200x1600 הגיע ל־20 כרטיסיות, עם כ־2.78 מיליון פיקסלים ב־20 כרטיסיות. הקריסה הקודמת בכרטיסייה 17 לא חזרה בריצות אלו, אך סיבת השורש שלה לא הוכחה. הבדיקה מאמתת זהות מסמך, עמוד, קנה מידה, סיבוב, גלילה, תוצאות חיפוש, פתקים בעברית שטרם נשמרו, ביטול ושחזור שרבוטים והשמדת עובדים בסגירה חזרה לכרטיסייה אחת. ערימת JavaScript הראשית נמדדת ללא איסוף זבל כפוי ואינה כוללת עובדים, זיכרון מקומי או GPU. מספר העובדים ומשאבי העמודים המפוענחים עדיין גדלים עם מספר המסמכים. עדיין נדרש פרופיל זיכרון תהליך ב־Windows עם מסמכים סרוקים אמיתיים ומגוונים.
 - **#10:** Still open. Existing packaged-Windows checklist remains the source for installation, shell, WebView2, save/print and close validation. Browser tests do not replace it.
   **#10 בעברית:** נשאר פתוח. רשימת הבדיקות הקיימת לחבילות Windows נשארה הבסיס לבדיקות התקנה, פתיחת קבצים, WebView2, שמירה, הדפסה וסגירה. בדיקות הדפדפן אינן מחליפות אותה.
 
@@ -35,6 +35,7 @@ npx playwright install chromium
 npm run dev
 # Terminal 2 / מסוף 2:
 npm run test:browser
+npm run test:memory
 # Optional installed Chrome / Chrome מותקן, אופציונלי:
 CHROME_PATH=/usr/bin/google-chrome npm run test:browser
 ```
@@ -50,3 +51,10 @@ All added app strings have English and Hebrew entries. Hebrew/RTL print setup, n
 Sources / מקורות: upstream issues `https://github.com/hasharferyf-hash/OpenPDF/issues/8`, `/9`, `/10`, `/13`, `/16`, `/17`, `/18`, `/19`, `/20`; icon image linked in #20. No issues were closed, no upstream code was pushed and no PR was opened.
 
 לא נסגרו אישוז, לא נדחף קוד לפרויקט המקורי ולא נפתח PR.
+
+
+## Windows build check / בדיקת בניית Windows
+
+The separate read-only `verify-windows.yml` check uses standard public-repository Windows runners. It does not upload artifacts, create releases, access repository secrets or run a packaged desktop E2E test. Its first run failed before native compilation because `--locked` required a Cargo.lock missing from the baseline. The corrected check lets Cargo resolve dependencies as the original CI did; this is not a reproducible locked Rust dependency build. Compilation and package results are reported separately after the run completes.
+
+הבדיקה הנפרדת `verify-windows.yml` פועלת בהרשאת קריאה בלבד על שרתי Windows רגילים למאגרים שגלויים לכולם. היא אינה מעלה תוצרים, יוצרת הפצות, ניגשת לסודות המאגר או מבצעת בדיקת קצה־לקצה של היישום הארוז. הריצה הראשונה נכשלה לפני הידור הקוד המקומי משום שהאפשרות `--locked` דרשה Cargo.lock שאינו קיים במקור. הבדיקה המתוקנת מאפשרת ל־Cargo לבחור תלויות כמו בבדיקה המקורית; אין זו בניית Rust עם תלויות נעולות לשחזור מדויק. תוצאות הידור ואריזה מדווחות בנפרד אחרי סיום הריצה.

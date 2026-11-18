@@ -32,6 +32,7 @@ function task(promise, destroy = async () => {}) {
 
 async function viewer() {
   const tasks = [];
+  const resets = [];
   let started = 0;
   class EventBus {
     listeners = new Map();
@@ -39,6 +40,8 @@ async function viewer() {
     dispatch(name, value) { this.listeners.get(name)?.(value); }
   }
   class PDFViewer {
+    pagesCount = 2;
+    getPageView(index) { return { reset: options => resets.push({ index, options }) }; }
     setDocument() {}
     update() {}
   }
@@ -60,7 +63,7 @@ async function viewer() {
     "pdfjs-dist/web/pdf_viewer.css": {},
   }, { document: { baseURI: "http://localhost/" }, ResizeObserver: class { observe() {} disconnect() {} } });
   const controller = new module.ViewerController({}, {});
-  return { controller, tasks, module, get started() { return started; } };
+  return { controller, tasks, module, resets, get started() { return started; } };
 }
 
 const open = async (fixture, doc) => {
@@ -225,4 +228,23 @@ test("preview quality uses a page-count budget independent of printing", async (
   assert.equal(module.previewPixelBudget(51), 4 * 1024 * 1024);
   assert.equal(module.previewPixelBudget(201), 2 * 1024 * 1024);
   assert.equal(module.previewPixelBudget(501), 1024 * 1024);
+});
+
+
+test("inactive tabs release raster canvases without discarding editor and text layers", async () => {
+  const fixture = await viewer();
+  const doc = document();
+  await open(fixture, doc);
+  fixture.controller.setActive(false);
+  assert.equal(fixture.controller.document, doc);
+  assert.equal(fixture.resets.length, 2);
+  for (const { options } of fixture.resets) {
+    assert.equal(options.keepTextLayer, true);
+    assert.equal(options.keepAnnotationLayer, true);
+    assert.equal(options.keepAnnotationEditorLayer, true);
+    assert.equal(options.keepXfaLayer, true);
+    assert.equal(options.keepCanvasWrapper, undefined);
+  }
+  fixture.controller.setActive(true);
+  assert.equal(fixture.controller.document, doc);
 });
