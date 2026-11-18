@@ -1,0 +1,98 @@
+name: Windows preview release / גרסת ניסיון ל-Windows
+on:
+  push:
+    branches: [fix/recent-issues-2026-11-18]
+    paths: [.github/workflows/publish-preview.yml]
+permissions: {}
+jobs:
+  build:
+    name: Read-only build and tests / בנייה ובדיקות ללא הרשאת כתיבה
+    if: github.repository == 'jcool-j/OpenPDF' && github.ref == 'refs/heads/fix/recent-issues-2026-11-18'
+    runs-on: windows-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run build
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: npm run tauri build -- --ci
+      - name: Collect exact build and checksums / איסוף התוצרים וסכומי ביקורת
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force preview-assets,portable/OpenPDF | Out-Null
+          Copy-Item src-tauri/target/release/bundle/nsis/*.exe preview-assets/
+          Copy-Item src-tauri/target/release/bundle/msi/*.msi preview-assets/
+          if ((Get-ChildItem preview-assets/*.exe).Count -ne 1 -or (Get-ChildItem preview-assets/*.msi).Count -ne 1) { throw 'Expected NSIS and MSI / נדרשים שני סוגי המתקינים' }
+          Copy-Item src-tauri/target/release/openpdf.exe portable/OpenPDF/OpenPDF.exe
+          Copy-Item packaging/portable/* portable/OpenPDF/
+          Copy-Item LICENSE,THIRD_PARTY_NOTICES.md portable/OpenPDF/
+          Compress-Archive -Path portable/OpenPDF -DestinationPath preview-assets/OpenPDF_0.1.0_x64-portable.zip
+          Set-Content -Path preview-assets/SOURCE_COMMIT.txt -Value $env:GITHUB_SHA -Encoding utf8
+          Get-ChildItem preview-assets -File | Where-Object Name -ne SHA256SUMS.txt | ForEach-Object { $h = Get-FileHash $_.FullName -Algorithm SHA256; "$($h.Hash.ToLower())  $($_.Name)" } | Set-Content preview-assets/SHA256SUMS.txt -Encoding utf8
+          $total = (Get-ChildItem preview-assets -File | Measure-Object Length -Sum).Sum
+          if ($total -gt 100MB) { throw 'Transfer exceeds verified free allowance / ההעברה חורגת מההקצאה החינמית שנבדקה' }
+          Get-ChildItem preview-assets | Select-Object Name,Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-preview
+          path: preview-assets/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+  publish:
+    name: Publish only, do not execute build outputs / פרסום בלבד ללא הרצת התוצרים
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-preview
+          path: preview-assets
+      - name: Publish marked pre-release, never latest / פרסום כגרסת ניסיון בלבד
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(tr -d '\r\n\357\273\277' < preview-assets/SOURCE_COMMIT.txt)" = "$GITHUB_SHA"
+          cd preview-assets
+          sed '1s/^\xEF\xBB\xBF//' SHA256SUMS.txt | tr -d '\r' | sha256sum --check
+          cd ..
+          cat > notes.md <<'NOTES'
+          Experimental Windows x64 preview with Hebrew and English UI. Standard NSIS/MSI installers and portable ZIP. Version inside the app remains 0.1.0.
+
+          Includes sticky notes, hand panning, page-range print setup, print-quality/resource limits, updated icons and inactive-tab raster release. Unit tests, frontend build, native Rust tests and Windows packaging passed in this run. Browser behavior and 20-tab state restoration were separately tested.
+
+          Not yet verified: installed Windows 10/11 shell workflows, physical printing, Windows print-to-PDF, Acrobat/Edge note interoperability, and full worker/native/GPU memory behavior. Print output is raster-based. Unsigned preview: Windows may show an unknown-publisher warning. Standard installers download WebView2 if missing; this is not the offline WebView2 installer. Back up important PDFs before testing.
+
+          גרסת ניסיון ניסיונית ל-Windows x64, בעברית ובאנגלית. מצורפים מתקיני NSIS/MSI רגילים וקובץ ZIP נייד. הגרסה בתוך היישום נשארת 0.1.0.
+
+          כוללת פתקים, גלילה באמצעות כלי יד, בחירת עמודים להדפסה, מגבלות איכות ומשאבים, אייקון מעודכן ושחרור משטחי ציור בכרטיסיות לא פעילות. בדיקות היחידה, בניית הממשק, בדיקות Rust ואריזת Windows עברו בריצה זו. התנהגות בדפדפן ושחזור מצב ב-20 כרטיסיות נבדקו בנפרד.
+
+          טרם אומתו: תהליכי מעטפת ביישום מותקן ב-Windows 10/11, הדפסה פיזית, הדפסה ל-PDF ב-Windows, תאימות פתקים ל-Acrobat/Edge וזיכרון כולל של עובדים, תהליך מקומי ו-GPU. ההדפסה מבוססת תמונות. זוהי גרסה לא חתומה ו-Windows עשוי להזהיר על מפרסם לא מוכר. המתקינים הרגילים מורידים WebView2 אם הוא חסר; אין כאן מתקין WebView2 להתקנה ללא רשת. יש לגבות קובצי PDF חשובים לפני בדיקה.
+          NOTES
+          gh release create v0.1.0-preview.20261118.1 preview-assets/* --target "$GITHUB_SHA" --title 'OpenPDF 0.1.0 preview / גרסת ניסיון' --notes-file notes.md --prerelease --latest=false
+      - name: Delete temporary transfer artifact / מחיקת תוצר ההעברה הזמני
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "windows-preview") | .id' | while read -r id; do gh api --method DELETE "repos/$GH_REPO/actions/artifacts/$id"; done
