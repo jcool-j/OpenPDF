@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
 const en = {
-  errorNoteSave: "Could not safely save the comments. Encrypted PDFs or unsupported annotation structures may need an unprotected copy. The original file was not overwritten.",
+  errorNoteSave: "Could not safely save the comments. Encrypted PDFs or unsupported annotation structures may need an unprotected copy.",
   stickyNote: "Sticky note (click a page)",
   comments: "Comments",
   noComments: "No sticky notes yet. Choose the note tool and click a page.",
@@ -118,7 +118,7 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const he: Record<MessageKey, string> = {
-  errorNoteSave: "לא ניתן לשמור את התגובות בבטחה. ייתכן שקובץ מוצפן או מבנה הערות לא נתמך דורשים עותק לא מוגן. הקובץ המקורי לא נדרס.",
+  errorNoteSave: "לא ניתן לשמור את התגובות בבטחה. ייתכן שקובץ מוצפן או מבנה הערות לא נתמך דורשים עותק לא מוגן.",
   stickyNote: "פתקית (לחצו על עמוד)",
   comments: "תגובות",
   noComments: "אין פתקיות עדיין. בחרו בכלי הפתקית ולחצו על עמוד.",

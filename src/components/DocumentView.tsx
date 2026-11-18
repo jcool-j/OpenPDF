@@ -226,7 +226,11 @@ export function DocumentView(props: DocumentViewProps) {
       if (controller.getState().notes.some((note) => !note.original) || controller.hasNoteChanges()) {
         const { getDocument } = await import("pdfjs-dist");
         // Includes unsaved notes and all existing PDF.js edits. Do not replace the live document.
-        printCopy = getDocument({ data: await controller.getBytes() });
+        printCopy = getDocument({ data: await controller.getBytes(), cMapPacked: true,
+          cMapUrl: new URL("pdfjs/cmaps/", document.baseURI).href,
+          standardFontDataUrl: new URL("pdfjs/standard_fonts/", document.baseURI).href,
+          wasmUrl: new URL("pdfjs/wasm/", document.baseURI).href,
+          iccUrl: new URL("pdfjs/iccs/", document.baseURI).href });
         doc = await printCopy.promise;
       }
       // Let the progress dialog close before the system print dialog blocks the page.
