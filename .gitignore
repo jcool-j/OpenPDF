@@ -62,3 +62,6 @@ public/dev-*.pdf
 
 # Release packaging output (CI)
 dist-release/
+
+# Browser regression evidence generated locally
+test-results/

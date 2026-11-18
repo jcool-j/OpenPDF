@@ -3,7 +3,15 @@ import { useI18n, type ThemePreference } from "../i18n";
 import type { EditorTool, ViewerController, ViewerState } from "../services/pdf/viewerController";
 import { Icon, IconButton, type IconName } from "./Icon";
 
+import type { PointerMode } from "../services/pdf/pointer";
+
 interface ToolbarProps {
+  noteTool: boolean;
+  commentsOpen: boolean;
+  onComments(): void;
+  onNoteTool(): void;
+  pointerMode: PointerMode;
+  onPointerModeChange(mode: PointerMode): void;
   controller: ViewerController;
   state: ViewerState;
   fileName: string;
@@ -186,6 +194,11 @@ export function Toolbar(props: ToolbarProps) {
       </div>
 
       <div className="toolbar-end">
+        <IconButton icon="note" label={t("stickyNote")} disabled={!has || !state.notesReady} active={props.noteTool && state.tool === "none"} onClick={props.onNoteTool} />
+        <IconButton icon="comment" label={t("comments")} disabled={!has || !state.notesReady} active={props.commentsOpen} onClick={props.onComments} />
+        <IconButton icon="hand" label={t("handTool")} disabled={!has}
+          active={props.pointerMode === "hand" && state.tool === "none"}
+          onClick={() => props.onPointerModeChange(props.pointerMode === "hand" ? "select" : "hand")} />
         <IconButton icon="search" label={`${t("find")} (Ctrl+F)`} disabled={!has} onClick={props.onFind} />
         <IconButton icon="download" label={`${t("download")} (Ctrl+S)`} disabled={!has} onClick={props.onSave} />
         <IconButton icon="print" label={`${t("print")} (Ctrl+P)`} disabled={!has} onClick={props.onPrint} />

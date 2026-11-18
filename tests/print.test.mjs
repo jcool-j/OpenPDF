@@ -81,14 +81,42 @@ test("ordinary documents retain 150 DPI and release their rasters after printing
   assert.equal(fixture.document.head.children.length, 0);
 });
 
-test("long documents stay within the total decoded pixel budget", async () => {
+test("long documents never silently lower print resolution, and oversized jobs fail before rendering", async () => {
   const fixture = await printing({ count: 500 });
-  const ready = await fixture.printDocument(fixture.doc);
-  const pixels = fixture.sizes.reduce((total, size) => total + size.width * size.height, 0);
-  assert.ok(pixels <= 32 * 1024 * 1024);
-  assert.ok(fixture.sizes.every((size) => size.scale < 150 / 72));
-  ready();
+  await assert.rejects(fixture.printDocument(fixture.doc), /smaller page range/);
+  assert.equal(fixture.sizes.length, 0);
+  const short = await printing();
+  const shortReady = await short.printDocument(short.doc);
+  const ready = await fixture.printDocument(fixture.doc, { pages: [1, 250, 500] });
+  assert.equal(fixture.sizes.length, 3);
+  assert.equal(fixture.sizes[0].scale, short.sizes[0].scale);
+  assert.ok(fixture.sizes.every((size) => size.scale === 150 / 72));
+  ready(); shortReady();
   assert.equal(fixture.urls.size, 0);
+});
+
+test("selected pages only are rendered, in order, with selected-job progress and annotations", async () => {
+  const requested = [], progress = [], storage = {};
+  const fixture = await printing({ count: 500, render(options) {
+    assert.equal(options.intent, "print");
+    assert.equal(options.printAnnotationStorage, storage);
+  } });
+  fixture.doc.annotationStorage.print = storage;
+  const original = fixture.doc.getPage;
+  fixture.doc.getPage = async (page) => { requested.push(page); return original(page); };
+  const ready = await fixture.printDocument(fixture.doc, { pages: [3, 17], dpi: 300, onProgress: (done, total) => progress.push([done,total]) });
+  assert.deepEqual(requested, [3,17,3,17]); // preflight then render; never reads all source pages.
+  assert.deepEqual(progress, [[1,2],[2,2]]);
+  assert.equal(fixture.sizes[0].scale, 300 / 72);
+  ready();
+});
+
+test("invalid page selections and pre-aborted jobs do no rendering", async () => {
+  const fixture = await printing({ count: 5 });
+  for (const pages of [[], [0], [6], [1,1], [1.5]]) await assert.rejects(fixture.printDocument(fixture.doc, { pages }), /Invalid print pages/);
+  const abort = new AbortController(); abort.abort();
+  assert.equal(await fixture.printDocument(fixture.doc, { signal: abort.signal }), null);
+  assert.equal(fixture.sizes.length, 0);
 });
 
 test("oversized pages respect both per-page pixel and canvas dimension limits", async () => {

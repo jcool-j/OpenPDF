@@ -1,3 +1,4 @@
+import type { StickyNote } from "./stickyNotes";
 // The single frontend boundary that talks to PDF.js. React components consume
 // the plain state exposed here and never import pdfjs-dist directly.
 import {
@@ -44,6 +45,9 @@ export interface ViewerState {
   hasSelectedEditor: boolean;
   modified: boolean;
   presenting: boolean;
+  notes: readonly StickyNote[];
+  notesReady: boolean;
+  renderVersion: number;
 }
 
 export interface FindState {
@@ -68,6 +72,7 @@ export interface SaveSnapshot {
   readonly document: PDFDocumentProxy;
   readonly annotationHash: string;
   readonly data: Uint8Array;
+  readonly notesVersion: number;
 }
 
 const TOOL_TO_MODE: Record<EditorTool, number> = {
@@ -84,6 +89,13 @@ export const HIGHLIGHT_COLORS: Record<string, string> = {
   pink: "#FFCBE6",
   red: "#FF4F5F",
 };
+
+// Preview-only per-page cap: 8 MP through 50 pages, 4 MP through 200,
+// 2 MP through 500, then 1 MP. PDF.js still prioritizes visible pages and
+// detail canvases. Printing has its own independent DPI and limits.
+export function previewPixelBudget(pageCount: number): number {
+  return (pageCount > 500 ? 1 : pageCount > 200 ? 2 : pageCount > 50 ? 4 : 8) * 1024 * 1024;
+}
 
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 10;
@@ -113,6 +125,7 @@ const INITIAL_STATE: ViewerState = {
   hasSelectedEditor: false,
   modified: false,
   presenting: false,
+  notes: [], notesReady: false, renderVersion: 0,
 };
 
 const INITIAL_FIND: FindState = { current: 0, total: 0, notFound: false, pending: false };
@@ -137,6 +150,8 @@ export class ViewerController {
   private active = true;
   private destroyed = false;
   private initialScalePending = false;
+  private notesVersion = 0;
+  private readonly changedNotes = new Set<string>();
 
   constructor(container: HTMLDivElement, viewerElement: HTMLDivElement) {
     this.container = container;
@@ -162,11 +177,15 @@ export class ViewerController {
       annotationEditorHighlightColors: Object.entries(HIGHLIGHT_COLORS)
         .map(([name, value]) => `${name}=${value}`)
         .join(","),
-      imageResourcesPath: "",
+      imageResourcesPath: assetUrl("images"),
       supportsPinchToZoom: true,
+      maxCanvasPixels: 8 * 1024 * 1024,
+      maxCanvasDim: 8192,
+      enableDetailCanvas: true,
     });
     this.linkService.setViewer(this.viewer);
 
+    eventBus.on("pagerendered", () => this.patch({ renderVersion: this.state.renderVersion + 1 }));
     eventBus.on("pagesinit", () => {
       this.initialScalePending = true;
       this.handleResize();
@@ -282,10 +301,21 @@ export class ViewerController {
     // PDF.js clears its own flag whenever the bytes are generated; ours is only cleared by
     // markSaved(), i.e. once the file was really written (the user may cancel the save dialog).
     storage.onSetModified = () => this.patch({ modified: true });
+    this.viewer.maxCanvasPixels = previewPixelBudget(doc.numPages);
     this.viewer.setDocument(doc);
     this.linkService.setDocument(doc, null);
     this.patch({ ...INITIAL_STATE, hasDocument: true, pageCount: doc.numPages });
     this.findState = INITIAL_FIND;
+    // Read standard PDF Text notes, including those made in other readers.
+    if (typeof doc.getAnnotationsByType === "function") {
+      try {
+        const annotations = await doc.getAnnotationsByType(new Set([1]), new Set()) as Array<{ id: string; pageIndex: number; rect: number[]; contentsObj?: { str?: string } }>;
+        if (this.doc === doc && request === this.openRequest) this.patch({ notes: (annotations ?? []).map((note) => ({ id: note.id, page: note.pageIndex + 1, rect: note.rect, text: note.contentsObj?.str ?? "", original: true })), notesReady: true });
+      } catch (error) {
+        console.warn("Could not load PDF comments", error);
+        // Do not expose editing over an incomplete comment list.
+      }
+    } else this.patch({ notesReady: true });
   }
 
   async close(): Promise<void> {
@@ -320,6 +350,8 @@ export class ViewerController {
     this.loadingTask = null;
     this.uiManager = null;
     this.lastFind = null;
+    this.notesVersion = 0;
+    this.changedNotes.clear();
     this.initialScalePending = false;
     if (this.doc) {
       this.viewer.setDocument(null as unknown as PDFDocumentProxy);
@@ -335,7 +367,10 @@ export class ViewerController {
   async getBytes(): Promise<Uint8Array> {
     const doc = this.requireDoc();
     this.commitEdits();
-    return doc.annotationStorage.size > 0 ? doc.saveDocument() : doc.getData();
+    const bytes = await (doc.annotationStorage.size > 0 ? doc.saveDocument() : doc.getData());
+    if (!this.changedNotes.size) return bytes;
+    const { writeStickyNotes } = await import("./stickyNotes");
+    return writeStickyNotes(bytes, this.state.notes, this.changedNotes);
   }
 
   /** Captures the exact document and annotation contents being written. */
@@ -345,8 +380,15 @@ export class ViewerController {
     // PDF.js only emits onSetModified on its first change, so a boolean or
     // event counter cannot detect subsequent edits during serialization.
     const annotationHash = doc.annotationStorage.serializable.hash;
-    const data = await (doc.annotationStorage.size > 0 ? doc.saveDocument() : doc.getData());
-    return { document: doc, annotationHash, data };
+    const notesVersion = this.notesVersion;
+    const notes = this.state.notes.map((note) => ({ ...note, rect: [...note.rect] }));
+    const changed = new Set(this.changedNotes);
+    let data = await (doc.annotationStorage.size > 0 ? doc.saveDocument() : doc.getData());
+    if (changed.size) {
+      const { writeStickyNotes } = await import("./stickyNotes");
+      data = await writeStickyNotes(data, notes, changed);
+    }
+    return { document: doc, annotationHash, notesVersion, data };
   }
 
   /**
@@ -370,13 +412,42 @@ export class ViewerController {
   markSaved(snapshot: SaveSnapshot): boolean {
     if (this.doc !== snapshot.document) return false;
     this.commitEdits();
-    if (this.doc.annotationStorage.serializable.hash !== snapshot.annotationHash) {
+    if (this.notesVersion !== snapshot.notesVersion || this.doc.annotationStorage.serializable.hash !== snapshot.annotationHash) {
       this.patch({ modified: true });
       return false;
     }
     this.doc.annotationStorage.resetModified();
     this.patch({ modified: false });
     return true;
+  }
+
+  hasNoteChanges() { return this.changedNotes.size > 0; }
+  saveNote(note: StickyNote) {
+    if (!this.doc || !this.state.notesReady || !note.text.trim() || note.page < 1 || note.page > this.doc.numPages) return;
+    const notes = this.state.notes.filter((item) => item.id !== note.id);
+    notes.push({ ...note, rect: [...note.rect] });
+    this.changedNotes.add(note.id); this.notesVersion++;
+    this.patch({ notes: notes.sort((a, b) => a.page - b.page), modified: true });
+  }
+  deleteNote(id: string) {
+    if (!this.state.notes.some((note) => note.id === id)) return;
+    const note = this.state.notes.find((note) => note.id === id)!;
+    if (note.original) this.changedNotes.add(id); else this.changedNotes.delete(id);
+    this.notesVersion++;
+    this.patch({ notes: this.state.notes.filter((note) => note.id !== id), modified: true });
+  }
+  notePosition(pageNumber: number, rect: readonly number[]) {
+    const view = this.viewer.getPageView(pageNumber - 1);
+    if (!view?.div) return null;
+    const [x, y] = view.viewport.convertToViewportPoint(rect[0], rect[3]);
+    return { element: view.div, x, y };
+  }
+  noteAtPoint(pageNumber: number, clientX: number, clientY: number): number[] | null {
+    const view = this.viewer.getPageView(pageNumber - 1);
+    if (!view?.div) return null;
+    const box = view.div.getBoundingClientRect();
+    const [x, y] = view.viewport.convertToPdfPoint(clientX - box.left, clientY - box.top);
+    return [x, y - 22, x + 22, y];
   }
 
   private requireDoc(): PDFDocumentProxy {

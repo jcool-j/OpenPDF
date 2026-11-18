@@ -1,28 +1,30 @@
-// Prints the document by rasterizing every page with the "print" intent into a
+// Prints selected pages using original PDF content and the "print" intent into a
 // hidden container that only becomes visible in the print media (see styles.css).
 import { AnnotationMode, type PDFDocumentProxy, type RenderTask } from "pdfjs-dist";
 
-const PRINT_DPI = 150;
-const PRINT_UNITS = PRINT_DPI / 72;
 const CONTAINER_ID = "print-container";
-// Bound the decoded page bitmaps to roughly 128 MiB, plus one working canvas
-// (at most 64 MiB). This is a raster budget, not a limit on total WebView memory.
-const MAX_TOTAL_PIXELS = 32 * 1024 * 1024;
+// Refuse oversized jobs instead of silently lowering print resolution. This
+// bounds retained decoded page rasters; the renderer uses one working canvas.
+const MAX_TOTAL_PIXELS = 128 * 1024 * 1024;
 const MAX_PAGE_PIXELS = 16 * 1024 * 1024;
 const MAX_CANVAS_DIMENSION = 8192;
 
-function printScale(width: number, height: number, pageCount: number): number {
-  const pixels = Math.min(MAX_PAGE_PIXELS, Math.max(1, Math.floor(MAX_TOTAL_PIXELS / pageCount)));
+export class PrintBudgetError extends Error {}
+
+export function printScale(width: number, height: number, dpi = 150): number {
+  if (!(width > 0 && height > 0 && Number.isFinite(width * height))) throw new Error("Invalid page size");
   return Math.min(
-    PRINT_UNITS,
-    Math.sqrt(pixels / (width * height)),
-    pixels / Math.max(width, height),
+    dpi / 72,
+    Math.sqrt(MAX_PAGE_PIXELS / (width * height)),
+    MAX_PAGE_PIXELS / Math.max(width, height),
     MAX_CANVAS_DIMENSION / width,
     MAX_CANVAS_DIMENSION / height,
   );
 }
 
 export interface PrintOptions {
+  pages?: readonly number[];
+  dpi?: 150 | 300;
   onProgress?: (done: number, total: number) => void;
   signal?: AbortSignal;
 }
@@ -42,14 +44,28 @@ function loadImage(img: HTMLImageElement, url: string): Promise<void> {
 }
 
 /**
- * Renders every page for printing. Resolves to a function that opens the system
+ * Renders the selected pages for printing. Resolves to a function that opens the system
  * print dialog, or null when the job was cancelled.
  */
 export async function printDocument(
   doc: PDFDocumentProxy,
   options: PrintOptions = {},
 ): Promise<(() => void) | null> {
-  const { onProgress, signal } = options;
+  const { onProgress, signal, dpi = 150 } = options;
+  const pages = options.pages ? [...options.pages] : Array.from({ length: doc.numPages }, (_, index) => index + 1);
+  if (!pages.length || new Set(pages).size !== pages.length ||
+      pages.some((page) => !Number.isInteger(page) || page < 1 || page > doc.numPages)) throw new Error("Invalid print pages");
+  if (dpi !== 150 && dpi !== 300) throw new Error("Invalid print resolution");
+  // Preflight only selected pages. No canvas work occurs for rejected jobs.
+  let totalPixels = 0;
+  for (const pageNumber of pages) {
+    if (signal?.aborted) return null;
+    const page = await doc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    const scale = printScale(viewport.width, viewport.height, dpi);
+    totalPixels += Math.max(1, Math.floor(viewport.width * scale)) * Math.max(1, Math.floor(viewport.height * scale));
+    if (totalPixels > MAX_TOTAL_PIXELS) throw new PrintBudgetError("Choose a smaller page range or print in separate jobs. Print quality was not reduced.");
+  }
   document.getElementById(CONTAINER_ID)?.remove();
   const container = document.createElement("div");
   container.id = CONTAINER_ID;
@@ -69,7 +85,8 @@ export async function printDocument(
 
   try {
     const printAnnotationStorage = doc.annotationStorage.print;
-    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+    let done = 0;
+    for (const pageNumber of pages) {
       if (signal?.aborted) {
         cleanup();
         return null;
@@ -80,7 +97,7 @@ export async function printDocument(
         return null;
       }
       const viewport = page.getViewport({ scale: 1 });
-      const scale = printScale(viewport.width, viewport.height, doc.numPages);
+      const scale = printScale(viewport.width, viewport.height, dpi);
       const size = `${viewport.width}pt ${viewport.height}pt`;
       if (!pageRules.has(size)) {
         const name = `openpdf-size-${pageRules.size + 1}`;
@@ -117,10 +134,11 @@ export async function printDocument(
       wrapper.style.cssText = `page: ${pageRules.get(size)}; width: ${viewport.width}pt; height: ${viewport.height}pt;`;
       const img = document.createElement("img");
       await loadImage(img, url);
+      if (signal?.aborted) { cleanup(); return null; }
       wrapper.append(img);
       container.append(wrapper);
       page.cleanup();
-      onProgress?.(pageNumber, doc.numPages);
+      onProgress?.(++done, pages.length);
     }
     if (signal?.aborted) {
       cleanup();

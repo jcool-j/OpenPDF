@@ -1,5 +1,7 @@
+import { CommentsPanel, NoteEditor, NoteMarkers } from "./Comments";
+import type { StickyNote } from "../services/pdf/stickyNotes";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ConfirmDialog, MessageDialog, PasswordDialog, ProgressDialog, PropertiesDialog } from "./Dialogs";
+import { ConfirmDialog, PrintSetupDialog, MessageDialog, PasswordDialog, ProgressDialog, PropertiesDialog } from "./Dialogs";
 import { EditorBar } from "./EditorBar";
 import { FindBar } from "./FindBar";
 import { Icon } from "./Icon";
@@ -15,7 +17,8 @@ import {
   setWindowTitle,
   type OpenedFile,
 } from "../services/files/platform";
-import { printDocument } from "../services/pdf/print";
+import { initialPointerMode, installHandPan, storePointerMode } from "../services/pdf/pointer";
+import { printDocument, PrintBudgetError } from "../services/pdf/print";
 import type { FileOperations } from "../services/files/operations";
 import { OpenCancelled, PasswordCancelled, ViewerController } from "../services/pdf/viewerController";
 import type { DocumentHandle, DocumentStatus } from "../services/tabs";
@@ -42,7 +45,9 @@ type Modal =
   | { kind: "message"; title: string; message: string }
   | { kind: "password"; id: number; wrong: boolean; resolve(password: string | null): void }
   | { kind: "confirm"; resolve(discard: boolean): void }
-  | { kind: "print"; done: number; abort: AbortController }
+  | { kind: "printSetup" }
+  | { kind: "print"; done: number; total: number; abort: AbortController }
+  | { kind: "note"; note: StickyNote }
   | { kind: "properties" };
 
 const isEditable = (target: EventTarget | null) =>
@@ -57,7 +62,10 @@ export function DocumentView(props: DocumentViewProps) {
   const [file, setFile] = useState<CurrentFile | null>(null);
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState<Modal | null>(null);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [noteTool, setNoteTool] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pointerMode, setPointerMode] = useState(initialPointerMode);
   const [findOpen, setFindOpen] = useState(false);
   const [findFocus, setFindFocus] = useState(0);
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
@@ -203,20 +211,27 @@ export function DocumentView(props: DocumentViewProps) {
       setToast(t("saved", { name: baseName(saved) }));
     } catch (error) {
       console.error(error);
-      showError(t("download"), t("errorSave"));
+      showError(t("download"), t(controller.hasNoteChanges() ? "errorNoteSave" : "errorSave"));
     }
   }), [controller, file, showError, t]);
 
-  const print = useCallback(() => fileOperations.current.run(async () => {
-    const doc = controller?.document;
-    if (!doc || latest.current.modal) return;
+  const preparePrint = useCallback((pages: number[], dpi: 150 | 300) => fileOperations.current.run(async () => {
+    let doc = controller?.document;
+    if (!controller || !doc || latest.current.modal?.kind !== "printSetup") return;
     controller.commitEdits();
     const abort = new AbortController();
-    setModal({ kind: "print", done: 0, abort });
+    setModal({ kind: "print", done: 0, total: pages.length, abort });
+    let printCopy: import("pdfjs-dist").PDFDocumentLoadingTask | null = null;
     try {
+      if (controller.getState().notes.some((note) => !note.original) || controller.hasNoteChanges()) {
+        const { getDocument } = await import("pdfjs-dist");
+        // Includes unsaved notes and all existing PDF.js edits. Do not replace the live document.
+        printCopy = getDocument({ data: await controller.getBytes() });
+        doc = await printCopy.promise;
+      }
       // Let the progress dialog close before the system print dialog blocks the page.
       const ready = await printDocument(doc, {
-        signal: abort.signal,
+        signal: abort.signal, pages, dpi,
         onProgress: (done) => setModal((current) => (current?.kind === "print" ? { ...current, done } : current)),
       });
       setModal((current) => (current?.kind === "print" ? null : current));
@@ -226,9 +241,15 @@ export function DocumentView(props: DocumentViewProps) {
       }
     } catch (error) {
       console.error(error);
-      showError(t("print"), t("errorPrint"));
+      showError(t("print"), t(error instanceof PrintBudgetError ? "printBudget" : "errorPrint"));
+    } finally {
+      await printCopy?.destroy();
     }
   }), [controller, showError, t]);
+
+  const print = useCallback(() => {
+    if (controller?.document && !latest.current.modal) setModal({ kind: "printSetup" });
+  }, [controller]);
 
   const setPresenting = useCallback(
     (enabled: boolean) => {
@@ -367,6 +388,11 @@ export function DocumentView(props: DocumentViewProps) {
     };
   }, [controller]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container) return installHandPan(container);
+  }, []);
+
   const hasDocument = !!state?.hasDocument;
   const presenting = !!state?.presenting;
 
@@ -379,6 +405,17 @@ export function DocumentView(props: DocumentViewProps) {
             state={state}
             fileName={file?.name ?? "OpenPDF"}
             sidebarOpen={sidebarOpen}
+            pointerMode={pointerMode}
+            noteTool={noteTool}
+            commentsOpen={commentsOpen}
+            onComments={() => setCommentsOpen((open) => !open)}
+            onNoteTool={() => { controller.setTool("none"); setPointerMode("select"); setNoteTool((active) => !active); }}
+            onPointerModeChange={(mode) => {
+              setNoteTool(false);
+              controller.setTool("none");
+              setPointerMode(mode);
+              storePointerMode(mode);
+            }}
             annotationsVisible={annotationsVisible}
             onToggleSidebar={() => setSidebarOpen((open) => !open)}
             onOpen={openPicker}
@@ -399,14 +436,26 @@ export function DocumentView(props: DocumentViewProps) {
           {controller && state && hasDocument && sidebarOpen && !presenting && (
             <Sidebar controller={controller} state={state} />
           )}
+          {controller && state?.notesReady && commentsOpen && !presenting && <CommentsPanel controller={controller} notes={state.notes}
+            onEdit={(note) => setModal({ kind: "note", note })} onClose={() => setCommentsOpen(false)} />}
           <div className="viewer-area">
             <div
               ref={containerRef}
-              className={"viewer-container" + (annotationsVisible ? "" : " hide-annotations")}
+              className={"viewer-container" + (state?.notesReady ? " notes-enabled" : "") + (noteTool && state?.tool === "none" ? " note-tool" : "") + (pointerMode === "hand" && state?.tool === "none" ? " hand-mode" : "") + (annotationsVisible ? "" : " hide-annotations")}
+              onClickCapture={(event) => {
+                if (!noteTool || !controller || !state?.notesReady || state.tool !== "none" || modal || (event.target as HTMLElement).closest(".openpdf-note")) return;
+                const pageElement = (event.target as HTMLElement).closest<HTMLElement>(".page[data-page-number]");
+                if (!pageElement) return;
+                event.preventDefault(); event.stopPropagation();
+                const page = Number(pageElement.dataset.pageNumber);
+                const rect = controller.noteAtPoint(page, event.clientX, event.clientY);
+                if (rect) setModal({ kind: "note", note: { id: crypto.randomUUID(), page, rect, text: "" } });
+              }}
               dir="ltr"
               tabIndex={0}
             >
               <div ref={viewerRef} className="pdfViewer" />
+              {controller && state?.notesReady && annotationsVisible && <NoteMarkers controller={controller} state={state} onEdit={(note) => setModal({ kind: "note", note })} />}
             </div>
 
             {controller && findState && findOpen && hasDocument && !presenting && (
@@ -451,6 +500,9 @@ export function DocumentView(props: DocumentViewProps) {
           </div>
         )}
 
+        {modal?.kind === "note" && controller && <NoteEditor key={modal.note.id} note={modal.note}
+          onSave={(note) => { controller.saveNote(note); setModal(null); setNoteTool(false); setCommentsOpen(true); }}
+          onDelete={() => { controller.deleteNote(modal.note.id); setModal(null); }} onCancel={() => setModal(null)} />}
         {modal?.kind === "message" && (
           <MessageDialog title={modal.title} message={modal.message} onClose={() => setModal(null)} />
         )}
@@ -464,9 +516,10 @@ export function DocumentView(props: DocumentViewProps) {
             onCancel={() => modal.resolve(false)}
           />
         )}
+        {modal?.kind === "printSetup" && state && <PrintSetupDialog count={state.pageCount} current={state.page} onCancel={() => setModal(null)} onSubmit={(pages, dpi) => void preparePrint(pages, dpi)} />}
         {modal?.kind === "print" && state && (
           <ProgressDialog
-            message={t("preparingPrint", { done: modal.done, count: state.pageCount })}
+            message={t("preparingPrint", { done: modal.done, count: modal.total })}
             onCancel={() => {
               modal.abort.abort();
               setModal(null);

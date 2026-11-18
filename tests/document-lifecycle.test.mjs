@@ -216,3 +216,13 @@ test("destroying a tab releases its worker exactly once and prevents it reopenin
   assert.equal(fixture.controller.document, null);
   await assert.rejects(fixture.controller.open(new Uint8Array(), async () => null), fixture.module.OpenCancelled);
 });
+
+
+test("preview quality uses a page-count budget independent of printing", async () => {
+  const { module } = await viewer();
+  assert.equal(module.previewPixelBudget(1), 8 * 1024 * 1024);
+  assert.equal(module.previewPixelBudget(50), 8 * 1024 * 1024);
+  assert.equal(module.previewPixelBudget(51), 4 * 1024 * 1024);
+  assert.equal(module.previewPixelBudget(201), 2 * 1024 * 1024);
+  assert.equal(module.previewPixelBudget(501), 1024 * 1024);
+});

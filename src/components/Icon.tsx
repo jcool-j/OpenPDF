@@ -1,5 +1,7 @@
 // Small stroke icon set drawn for OpenPDF (24x24 grid).
 const PATHS = {
+  note: "M4 3h16v12l-6 6H4zM14 21v-6h6M8 7h8M8 11h5",
+  hand: "M7 12V6a1.5 1.5 0 0 1 3 0v5-7a1.5 1.5 0 0 1 3 0v7-6a1.5 1.5 0 0 1 3 0v6-4a1.5 1.5 0 0 1 3 0v7c0 4-2 7-6 7h-2c-2 0-3-1-4-3l-4-5a1.5 1.5 0 0 1 2-2z",
   menu: "M4 7h16M4 12h16M4 17h16",
   open: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
   minus: "M6 12h12",

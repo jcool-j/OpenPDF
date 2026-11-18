@@ -1,9 +1,10 @@
+import { parsePageRange } from "../services/pdf/pageRange";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n, type Language, type Translate } from "../i18n";
 import { readDocumentInfo, type DocumentInfo } from "../services/pdf/documentInfo";
 import type { ViewerController } from "../services/pdf/viewerController";
 
-function Dialog(props: { title: string; onClose(): void; children: ReactNode; actions: ReactNode }) {
+export function Dialog(props: { title: string; onClose(): void; children: ReactNode; actions: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -222,4 +223,26 @@ export function PropertiesDialog(props: {
       </dl>
     </Dialog>
   );
+}
+
+export function PrintSetupDialog(props: { count: number; current: number; onCancel(): void; onSubmit(pages: number[], dpi: 150 | 300): void }) {
+  const { t } = useI18n();
+  const [mode, setMode] = useState("all");
+  const [range, setRange] = useState(String(props.current));
+  const [dpi, setDpi] = useState<150 | 300>(150);
+  let pages: number[] = [];
+  try { pages = parsePageRange(mode === "all" ? `1-${props.count}` : mode === "current" ? String(props.current) : range, props.count); } catch { /* Keep invalid input editable. */ }
+  return <Dialog title={t("printSetup")} onClose={props.onCancel} actions={<>
+    <button type="button" className="text-button" onClick={props.onCancel}>{t("cancel")}</button>
+    <button type="button" className="primary-button" disabled={!pages.length} onClick={() => props.onSubmit(pages, dpi)}>{t("preparePrint")}</button>
+  </>}>
+    <p>{t("printSetupHint")}</p>
+    <label className="print-option">{t("printPages")} <select aria-label={t("printPages")} value={mode} onChange={(event) => setMode(event.target.value)}>
+      <option value="current">{t("currentPage")}</option><option value="all">{t("allPages")}</option><option value="range">{t("pageRange")}</option>
+    </select></label>
+    {mode === "range" && <><input className="dialog-input" dir="ltr" aria-label={t("pageRange")} aria-invalid={!pages.length} value={range} onChange={(event) => setRange(event.target.value)} placeholder="1-3, 5, 8-10" />
+      {!pages.length && <p role="alert">{t("invalidRange", { count: props.count })}</p>}</>}
+    <label className="print-option">{t("printResolution")} <select dir="ltr" aria-label={t("printResolution")} value={dpi} onChange={(event) => setDpi(Number(event.target.value) as 150 | 300)}><option value={150}>150 DPI</option><option value={300}>300 DPI</option></select></label>
+    <p>{t("printRasterHint")}</p>
+  </Dialog>;
 }

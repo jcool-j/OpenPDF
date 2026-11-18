@@ -13,5 +13,6 @@ await mkdir(target, { recursive: true });
 for (const dir of ["cmaps", "standard_fonts", "wasm", "iccs"]) {
   await cp(join(source, dir), join(target, dir), { recursive: true });
 }
+await cp(join(source, "web", "images"), join(target, "images"), { recursive: true });
 await cp(join(source, "LICENSE"), join(target, "LICENSE"));
 console.log("PDF.js assets copied to public/pdfjs");

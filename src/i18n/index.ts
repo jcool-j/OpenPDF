@@ -1,6 +1,26 @@
 import { createContext, useContext } from "react";
 
 const en = {
+  errorNoteSave: "Could not safely save the comments. Encrypted PDFs or unsupported annotation structures may need an unprotected copy. The original file was not overwritten.",
+  stickyNote: "Sticky note (click a page)",
+  comments: "Comments",
+  noComments: "No sticky notes yet. Choose the note tool and click a page.",
+  commentText: "Comment text",
+  saveComment: "Save comment",
+
+  printSetup: "Choose pages to print",
+  printSetupHint: "Select pages before preparing the document. Printer, copies and driver settings follow in the system dialog.",
+  printPages: "Pages",
+  currentPage: "Current page",
+  allPages: "All pages",
+  pageRange: "Page range",
+  invalidRange: "Enter pages from 1 to {count}, for example 1-3, 5.",
+  printResolution: "Resolution",
+  preparePrint: "Prepare selected pages",
+  printRasterHint: "Pages are rasterized from the original PDF, not the preview. Very large jobs must be split to protect memory. Oversized individual pages are limited to 16 MP / 8192 px.",
+  printBudget: "This print job exceeds the memory limit. Choose a smaller range and print in separate jobs. Quality has not been reduced.",
+
+  handTool: "Hand tool (drag to pan)",
   appTagline: "A light, clean PDF viewer",
   documentTabs: "Open documents",
   newTab: "New tab",
@@ -98,6 +118,26 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const he: Record<MessageKey, string> = {
+  errorNoteSave: "לא ניתן לשמור את התגובות בבטחה. ייתכן שקובץ מוצפן או מבנה הערות לא נתמך דורשים עותק לא מוגן. הקובץ המקורי לא נדרס.",
+  stickyNote: "פתקית (לחצו על עמוד)",
+  comments: "תגובות",
+  noComments: "אין פתקיות עדיין. בחרו בכלי הפתקית ולחצו על עמוד.",
+  commentText: "תוכן התגובה",
+  saveComment: "שמירת תגובה",
+
+  printSetup: "בחירת עמודים להדפסה",
+  printSetupHint: "בחרו עמודים לפני הכנת המסמך. בחירת המדפסת, העותקים וההגדרות הנוספות תופיע בחלון המערכת.",
+  printPages: "עמודים",
+  currentPage: "העמוד הנוכחי",
+  allPages: "כל העמודים",
+  pageRange: "טווח עמודים",
+  invalidRange: "יש להזין עמודים מ־1 עד {count}, למשל 1-3, 5.",
+  printResolution: "רזולוציה",
+  preparePrint: "הכנת העמודים שנבחרו",
+  printRasterHint: "העמודים נוצרים מה־PDF המקורי ולא מהתצוגה המקדימה. עבודות גדולות יש לפצל כדי לשמור על הזיכרון. עמוד בודד מוגבל ל־16 מגה־פיקסל ול־8192 פיקסלים.",
+  printBudget: "עבודת ההדפסה חורגת ממגבלת הזיכרון. בחרו טווח קטן יותר והדפיסו בכמה עבודות. האיכות לא הופחתה.",
+
+  handTool: "מצב יד (גרירה לגלילה)",
   appTagline: "מציג PDF קליל ונקי",
   documentTabs: "מסמכים פתוחים",
   newTab: "כרטיסייה חדשה",
