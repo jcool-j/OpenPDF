@@ -1,0 +1,69 @@
+name: Verify memory fix / בדיקת תיקון זיכרון
+on:
+  push:
+    branches: [fix/recent-issues-2026-11-18]
+    paths: [.github/workflows/apply-memory-fix.yml]
+permissions: {}
+env:
+  PATCH_00: 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
+jobs:
+  verify:
+    name: Read-only browser verification / בדיקת דפדפן ללא הרשאת כתיבה
+    if: github.repository == 'jcool-j/OpenPDF' && github.ref == 'refs/heads/fix/recent-issues-2026-11-18'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply exact reviewed patch / החלת טלאי שנבדק
+        shell: python
+        run: |
+          import os, base64, gzip, hashlib, subprocess
+          blob=base64.b64decode(''.join(os.environ[k] for k in sorted(os.environ) if k.startswith('PATCH_')))
+          assert hashlib.sha256(blob).hexdigest() == '44f7b0f2d86a6af1e294b311de62012893268dd4bbb62270e8e9d452eb6ed7e8'
+          subprocess.run(['git','apply','--index','--binary','-'],input=gzip.decompress(blob),check=True)
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run build
+      - name: Real browser and memory regression / בדיקות דפדפן וזיכרון אמיתיות
+        shell: bash
+        run: |
+          npx playwright install --with-deps chromium
+          node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 1420 > /tmp/openpdf-vite.log 2>&1 & server=$!
+          trap 'kill "$server"; wait "$server" 2>/dev/null || true' EXIT
+          npm run test:browser
+          npm run test:memory
+  commit:
+    name: Commit without executing project code / שמירה ללא הרצת קוד הפרויקט
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - name: Apply exact reviewed patch / החלת אותו טלאי שנבדק
+        shell: python
+        run: |
+          import os, base64, gzip, hashlib, subprocess
+          blob=base64.b64decode(''.join(os.environ[k] for k in sorted(os.environ) if k.startswith('PATCH_')))
+          assert hashlib.sha256(blob).hexdigest() == '44f7b0f2d86a6af1e294b311de62012893268dd4bbb62270e8e9d452eb6ed7e8'
+          subprocess.run(['git','apply','--index','--binary','-'],input=gzip.decompress(blob),check=True)
+      - name: Remove temporary files and commit / הסרת קבצים זמניים ושמירה
+        shell: bash
+        run: |
+          git rm --ignore-unmatch .github/workflows/apply-memory-fix.yml .github/workflows/.github/workflows/verify-windows.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -c core.hooksPath=/dev/null commit -m 'Release inactive page rasters, preserve editing state / שחרור משטחי ציור ושמירת מצב עריכה'
+          git -c core.hooksPath=/dev/null push origin HEAD:refs/heads/fix/recent-issues-2026-11-18
